@@ -43,6 +43,7 @@ venv.bak/
 
 # Project specific
 qdrant_storage/
+uploads/
 
 # OS generated files
 .DS_Store
