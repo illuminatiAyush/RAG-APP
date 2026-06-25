@@ -1,40 +1,40 @@
-import asyncio
-from pathlib import Path
-import time
+import asyncio #async capabilities
+from pathlib import Path #path manipulation
+import time #for timers nd sleeps
 
-import streamlit as st
-import inngest
-from dotenv import load_dotenv
-import os
-import requests
+import streamlit as st #frontend library
+import inngest #orchestrator SDK
+from dotenv import load_dotenv #load env vars
+import os #os interaction
+import requests #http requests for api checks
 
-load_dotenv()
+load_dotenv() #load environment config
 
-st.set_page_config(page_title="RAG Ingest PDF", layout="centered")
+st.set_page_config(page_title="RAG Ingest PDF", layout="centered") #page title config nd centering layout
 
 
-@st.cache_resource
+@st.cache_resource #cache client across runs so we dont recreate it
 def get_inngest_client() -> inngest.Inngest:
-    return inngest.Inngest(app_id="rag_app", is_production=False)
+    return inngest.Inngest(app_id="rag_app", is_production=False) #inngest client obj
 
 
-def save_uploaded_pdf(file) -> Path:
-    uploads_dir = Path("uploads")
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    file_path = uploads_dir / file.name
-    file_bytes = file.getbuffer()
-    file_path.write_bytes(file_bytes)
+def save_uploaded_pdf(file) -> Path: #helper to save uploaded bytes
+    uploads_dir = Path("uploads") #directory to save uploads
+    uploads_dir.mkdir(parents=True, exist_ok=True) #create dir if not exists
+    file_path = uploads_dir / file.name #complete file path
+    file_bytes = file.getbuffer() #extract raw bytes
+    file_path.write_bytes(file_bytes) #write to local disk
     return file_path
 
 
-async def send_rag_ingest_event(pdf_path: Path) -> None:
-    client = get_inngest_client()
+async def send_rag_ingest_event(pdf_path: Path) -> None: #send ingestion request to inngest
+    client = get_inngest_client() #get active client
     await client.send(
         inngest.Event(
-            name="rag/ingest_pdf",
+            name="rag/ingest_pdf", #trigger event name
             data={
-                "pdf_path": str(pdf_path.resolve()),
-                "source_id": pdf_path.name,
+                "pdf_path": str(pdf_path.resolve()), #absolute path for data loader
+                "source_id": pdf_path.name, #filename for metadata tracking
             },
         )
     )
@@ -65,49 +65,49 @@ with st.expander("How This System Works", expanded=False):
 
 st.divider()
 
-st.markdown('<h3 style="color: #eab308; margin-bottom: 10px;">Ingest PDF Documents</h3>', unsafe_allow_html=True)
-uploaded = st.file_uploader("Upload a PDF to parse and embed into Qdrant", type=["pdf"], accept_multiple_files=False)
+st.markdown('<h3 style="color: #eab308; margin-bottom: 10px;">Ingest PDF Documents</h3>', unsafe_allow_html=True) #yellow header for ingest section
+uploaded = st.file_uploader("Upload a PDF to parse and embed into Qdrant", type=["pdf"], accept_multiple_files=False) #file input widget
 
 if uploaded is not None:
-    with st.spinner("Processing PDF, generating embeddings, and storing in Qdrant..."):
-        path = save_uploaded_pdf(uploaded)
+    with st.spinner("Processing PDF, generating embeddings, and storing in Qdrant..."): #spinner to show loading
+        path = save_uploaded_pdf(uploaded) #save pdf physically
         # Kick off the event and block until the send completes
-        asyncio.run(send_rag_ingest_event(path))
+        asyncio.run(send_rag_ingest_event(path)) #async call run in sync environment
         # Small pause for user feedback continuity
-        time.sleep(0.3)
-    st.success(f"Successfully triggered ingestion for: {path.name}")
-    st.caption("The document is now being processed asynchronously by Inngest.")
+        time.sleep(0.3) #delay for UI updates
+    st.success(f"Successfully triggered ingestion for: {path.name}") #success banner
+    st.caption("The document is now being processed asynchronously by Inngest.") #caption info
 
 st.divider()
 st.markdown('<h3 style="color: #eab308; margin-bottom: 10px;">Query Knowledge Base</h3>', unsafe_allow_html=True)
 
 
-async def send_rag_query_event(question: str, top_k: int) -> None:
-    client = get_inngest_client()
+async def send_rag_query_event(question: str, top_k: int) -> None: #triggers query workflow
+    client = get_inngest_client() #get cached client
     result = await client.send(
         inngest.Event(
-            name="rag/query_pdf_ai",
+            name="rag/query_pdf_ai", #event trigger for query
             data={
-                "question": question,
-                "top_k": top_k,
+                "question": question, #user query
+                "top_k": top_k, #limit of context chunks
             },
         )
     )
 
-    return result[0]
+    return result[0] #return event ID to poll its runs
 
 
-def _inngest_api_base() -> str:
+def _inngest_api_base() -> str: #local base url for inngest API
     # Local dev server default; configurable via env
-    return os.getenv("INNGEST_API_BASE", "http://127.0.0.1:8288/v1")
+    return os.getenv("INNGEST_API_BASE", "http://127.0.0.1:8288/v1") #default dev agent port
 
 
-def fetch_runs(event_id: str) -> list[dict]:
-    url = f"{_inngest_api_base()}/events/{event_id}/runs"
-    resp = requests.get(url)
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("data", [])
+def fetch_runs(event_id: str) -> list[dict]: #get runs associated with event ID
+    url = f"{_inngest_api_base()}/events/{event_id}/runs" #api endpoint
+    resp = requests.get(url) #http request to fetch runs
+    resp.raise_for_status() #raise exception on errors
+    data = resp.json() #parse json response
+    return data.get("data", []) #return runs list
 
 
 def wait_for_run_output(event_id: str, timeout_s: float = 120.0, poll_interval_s: float = 0.5) -> dict:
